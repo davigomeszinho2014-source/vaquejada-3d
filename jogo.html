@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Vaquejada Voxel 3D — Fazenda Brasileira</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#10130f;font-family:Arial,sans-serif;touch-action:none}
+#game{position:fixed;inset:0}canvas{display:block}
+.hud{position:fixed;inset:0;pointer-events:none;color:#fff}
+.top{position:absolute;top:12px;left:12px;right:12px;display:flex;justify-content:space-between;gap:8px}
+.card{background:rgba(18,12,7,.78);border:1px solid #d79619;border-radius:14px;padding:8px 12px;box-shadow:0 0 18px #0008}
+.title{font-weight:900;color:#ffc11a;letter-spacing:1px}.small{font-size:12px}.big{font-size:18px;font-weight:900}
+#mission{position:absolute;top:72px;left:50%;transform:translateX(-50%);width:min(430px,78vw);text-align:center}
+#mission .card{padding:10px}
+#speed{position:absolute;left:14px;bottom:150px;width:155px}
+.bar{height:9px;background:#3a2b1b;border-radius:10px;overflow:hidden;border:1px solid #d79619}
+.bar i{display:block;height:100%;width:0;background:#f3a414}
+#status{position:absolute;left:14px;bottom:14px;max-width:230px}
+#buttons{position:absolute;right:14px;bottom:18px;display:grid;grid-template-columns:100px 100px;gap:10px;pointer-events:auto}
+.btn{height:64px;border:2px solid #fff;border-radius:16px;background:#168f4d;color:#fff;font-weight:900;font-size:15px;box-shadow:0 5px 18px #0007}
+.btn.blue{background:#2465df}.btn.orange{background:#c8790d}.btn.red{background:#a62b22}
+#joystick{position:absolute;left:18px;bottom:32px;width:118px;height:118px;border:2px solid #e5a51a;border-radius:50%;background:#0005;pointer-events:auto}
+#stick{position:absolute;left:38px;top:38px;width:42px;height:42px;border-radius:50%;background:#f4a516;border:3px solid #fff}
+#weather{position:absolute;top:130px;right:14px;pointer-events:auto}
+select{background:#1b130c;color:#fff;border:1px solid #d79619;border-radius:10px;padding:8px}
+#help{position:absolute;left:50%;bottom:90px;transform:translateX(-50%);background:#0009;padding:6px 10px;border-radius:10px;font-size:11px}
+@media(min-width:800px){#buttons{grid-template-columns:120px 120px}.btn{height:72px}}
+</style>
+</head>
+<body>
+<div id="game"></div>
+<div class="hud">
+  <div class="top">
+    <div class="card"><div class="title">VAQUEJADA 3D</div><div class="small">FAZENDA SERTÃO • MUNDO ABERTO</div></div>
+    <div class="card"><div class="small">PONTOS</div><div class="big" id="score">0</div></div>
+    <div class="card"><div class="small">MOEDAS</div><div class="big" id="coins">150</div></div>
+  </div>
+  <div id="mission"><div class="card"><div class="title">DESAFIO: CORRIDA NO SERTÃO</div><div class="small" id="missionText">Chegue à linha de chegada no menor tempo.</div></div></div>
+  <div id="weather" class="card">
+    <select id="weatherSel">
+      <option value="sun">☀️ Ensolarado</option><option value="cloud">☁️ Nublado</option>
+      <option value="rain">🌧️ Chuva</option><option value="sunset">🌅 Pôr do sol</option>
+    </select>
+  </div>
+  <div id="speed" class="card">
+    <div class="small">VELOCIDADE <b id="speedText">0 km/h</b></div>
+    <div class="bar"><i id="speedBar"></i></div>
+  </div>
+  <div id="status" class="card"><b id="horseName">Trovão</b> • <span id="horseState">parado</span><br><span class="small">Use o joystick ou WASD. Botões: andar/trotar/galope.</span></div>
+  <div id="joystick"><div id="stick"></div></div>
+  <div id="buttons">
+    <button class="btn blue" id="walk">🐎 ANDAR</button>
+    <button class="btn" id="trot">🏇 TROTAR</button>
+    <button class="btn orange" id="gallop">⚡ GALOPAR</button>
+    <button class="btn red" id="stop">✋ PARAR</button>
+  </div>
+  <div id="help">Explore a fazenda • visite o estábulo • entre na pista gigante • encontre os bois</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.min.js"></script>
+<script>
+const scene=new THREE.Scene();
+scene.fog=new THREE.Fog(0xb7d7e8,180,1150);
+const camera=new THREE.PerspectiveCamera(62,innerWidth/innerHeight,.1,1800);
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,1.6)); renderer.setSize(innerWidth,innerHeight);
+renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+document.getElementById('game').appendChild(renderer.domElement);
+
+const hemi=new THREE.HemisphereLight(0xbde2ff,0x6c4b28,1.45); scene.add(hemi);
+const sun=new THREE.DirectionalLight(0xfff1ce,2.1); sun.position.set(220,300,100); sun.castShadow=true;
+sun.shadow.mapSize.set(2048,2048); sun.shadow.camera.left=-500;sun.shadow.camera.right=500;sun.shadow.camera.top=500;sun.shadow.camera.bottom=-500; scene.add(sun);
+
+const mat=(c,rough=.8)=>new THREE.MeshStandardMaterial({color:c,roughness:rough});
+const groundMat=mat(0x6d4b2e), grassMat=mat(0x477b31), fenceMat=mat(0xa86a27), woodMat=mat(0x70401f);
+const trackMat=mat(0x8a552d), whiteMat=mat(0xf4ead0), roofMat=mat(0x8b3e20);
+
+function box(x,y,z,sx,sy,sz,m,rot=0){let o=new THREE.Mesh(new THREE.BoxGeometry(sx,sy,sz),m);o.position.set(x,y,z);o.rotation.y=rot;o.castShadow=true;o.receiveShadow=true;scene.add(o);return o}
+function cyl(x,y,z,r,h,m){let o=new THREE.Mesh(new THREE.CylinderGeometry(r,r,h,12),m);o.position.set(x,y,z);o.castShadow=true;o.receiveShadow=true;scene.add(o);return o}
+function sphere(x,y,z,r,m){let o=new THREE.Mesh(new THREE.SphereGeometry(r,16,12),m);o.position.set(x,y,z);o.castShadow=true;o.receiveShadow=true;scene.add(o);return o}
+
+const ground=box(0,-3,0,1500,6,1500,groundMat);
+for(let i=0;i<75;i++){let x=-700+Math.random()*1400,z=-700+Math.random()*1400; box(x,0,z,8+Math.random()*10,.15,8+Math.random()*10,grassMat)}
+// árvores
+for(let i=0;i<90;i++){let x=-650+Math.random()*1300,z=-650+Math.random()*1300;
+  if(Math.abs(x)<180&&Math.abs(z)<180)continue;
+  cyl(x,12,z,3,24,woodMat); sphere(x,30,z,13,grassMat); sphere(x+8,27,z-4,9,grassMat);
+}
+// cercas e currais
+function fence(x,z,w,d){
+  for(let i=0;i<=w;i+=12){box(x-w/2+i,4,z,1,8,1,fenceMat);box(x-w/2+i,6,z,1,1,1,fenceMat);box(x-w/2+i,2,z,1,1,1,fenceMat)}
+  for(let i=0;i<=d;i+=12){box(x-w/2,4,z-d/2+i,1,8,1,fenceMat);box(x+w/2,4,z-d/2+i,1,8,1,fenceMat)}
+}
+fence(-260,-170,220,150); fence(270,-210,230,170);
+// estábulo
+box(-300,18,-150,190,36,55,mat(0x9c6b35)); box(-300,39,-150,200,10,65,roofMat);
+for(let i=0;i<7;i++)box(-360+i*20,10,-120,2,18,3,woodMat);
+box(-300,13,-180,40,26,3,woodMat);
+// casa
+box(20,18,20,100,36,80,mat(0xd09b4e)); box(20,43,20,110,12,90,roofMat);
+for(let i=0;i<3;i++)box(-15+i*35,15,-22,12,22,3,woodMat);
+// estrada principal
+box(0,-.5,0,55,1,1450,mat(0x80552e)); box(0,.1,-680,55,1,4,whiteMat); box(0,.1,680,55,1,4,whiteMat);
+
+// pista gigante à direita
+const trackZ=250, trackW=180, trackL=720;
+box(360,-.2,trackZ,trackW,1,trackL,trackMat);
+box(360,.4,trackZ-trackL/2+5,trackW,1,3,whiteMat);
+box(360,.4,trackZ+trackL/2-5,trackW,1,3,whiteMat);
+for(let z=trackZ-trackL/2+40;z<trackZ+trackL/2;z+=60){box(360,.5,z,trackW,1,2,whiteMat)}
+// arquibancadas
+for(let side of [-1,1]) for(let z=trackZ-trackL/2;z<trackZ+trackL/2;z+=35){box(360+side*125,10,z,35,20,25,mat(0xb37a20));}
+box(360,12,trackZ-trackL/2-18,210,24,12,roofMat);
+const sign=box(360,28,trackZ-trackL/2-27,150,22,3,mat(0x20130b)); sign.material=mat(0x20130b);
+
+// portões
+box(360,10,trackZ-trackL/2+2,120,20,5,mat(0xe2b52a));
+
+// animais
+function horse(name,color,x,z){
+  const g=new THREE.Group(); g.position.set(x,0,z); scene.add(g);
+  const body=new THREE.Mesh(new THREE.BoxGeometry(7,5,14),mat(color)); body.position.y=8; body.castShadow=true;g.add(body);
+  const neck=new THREE.Mesh(new THREE.BoxGeometry(4,7,5),mat(color));neck.position.set(0,11,6);neck.rotation.x=-.25;neck.castShadow=true;g.add(neck);
+  const head=new THREE.Mesh(new THREE.BoxGeometry(4,4,6),mat(color));head.position.set(0,13,9);head.castShadow=true;g.add(head);
+  const mane=new THREE.Mesh(new THREE.BoxGeometry(.8,5,7),mat(0x1d1711));mane.position.set(0,14,6);g.add(mane);
+  const tail=new THREE.Mesh(new THREE.BoxGeometry(1,5,6),mat(0x1d1711));tail.position.set(0,8,-8);tail.rotation.x=.35;g.add(tail);
+  g.userData={name,legs:[],baseY:0};
+  for(let sx of [-2.2,2.2])for(let sz of [-4.5,4.5]){let leg=new THREE.Mesh(new THREE.BoxGeometry(1.4,7,1.5),mat(color));leg.position.set(sx,4,sz);leg.castShadow=true;g.add(leg);g.userData.legs.push(leg)}
+  return g;
+}
+function cow(color,x,z){
+  const g=new THREE.Group();g.position.set(x,0,z);scene.add(g);
+  const b=new THREE.Mesh(new THREE.BoxGeometry(7,5,11),mat(color));b.position.y=6;g.add(b);
+  const h=new THREE.Mesh(new THREE.BoxGeometry(5,5,5),mat(color));h.position.set(0,9,7);g.add(h);
+  for(let sx of [-2.2,2.2])for(let sz of [-3.5,3.5]){let l=new THREE.Mesh(new THREE.BoxGeometry(1.3,6,1.3),mat(0x4a3020));l.position.set(sx,3,sz);g.add(l)}
+  return g;
+}
+const cows=[]; for(let i=0;i<18;i++) cows.push(cow(i%2?0xf1e8d2:0x4b3022,-500+Math.random()*900,-450+Math.random()*900));
+const horseNPCs=[horse("Estrela",0x8a5a2d,-260,-210),horse("Brasa",0x2b2520,-300,-210),horse("Morena",0xc78c52,-340,-210)];
+const player=horse("Trovão",0x6b3b20,0,0); player.add(new THREE.Object3D()); player.userData.speed=0; player.userData.heading=0;
+
+let mode=0, score=0, coins=150, elapsed=0, weather='sun', rain=[];
+const keys={};
+addEventListener('keydown',e=>{keys[e.key.toLowerCase()]=true});
+addEventListener('keyup',e=>{keys[e.key.toLowerCase()]=false});
+document.querySelectorAll('#buttons .btn').forEach(b=>b.addEventListener('click',()=>{
+ if(b.id==='walk')mode=1;if(b.id==='trot')mode=2;if(b.id==='gallop')mode=3;if(b.id==='stop')mode=0;
+}));
+document.getElementById('weatherSel').onchange=e=>setWeather(e.target.value);
+function setWeather(w){weather=w; rain.forEach(o=>scene.remove(o));rain=[];
+ if(w==='sun'){hemi.intensity=1.45;sun.intensity=2.1;scene.background=new THREE.Color(0x8fc8ec)}
+ if(w==='cloud'){hemi.intensity=.8;sun.intensity=.55;scene.background=new THREE.Color(0x71808a)}
+ if(w==='sunset'){hemi.intensity=.7;sun.intensity=1.0;sun.color.set(0xff9a48);sun.position.set(-250,120,350);scene.background=new THREE.Color(0xd66b35)}
+ if(w==='rain'){hemi.intensity=.65;sun.intensity=.35;scene.background=new THREE.Color(0x536674);
+   for(let i=0;i<700;i++){let r=box(-600+Math.random()*1200,50+Math.random()*120,-600+Math.random()*1200,.12,5,.12,mat(0xa8c8e8));rain.push(r)}
+ }}
+setWeather('sun');
+
+const joy={x:0,y:0};const j=document.getElementById('joystick'),st=document.getElementById('stick');
+function joyMove(e){let r=j.getBoundingClientRect(),x=(e.clientX??e.touches[0].clientX)-(r.left+r.width/2),y=(e.clientY??e.touches[0].clientY)-(r.top+r.height/2),m=Math.min(43,Math.hypot(x,y));let a=Math.atan2(y,x);joy.x=Math.cos(a)*m/43;joy.y=Math.sin(a)*m/43;st.style.transform=`translate(${joy.x*38}px,${joy.y*38}px)`}
+j.addEventListener('pointermove',joyMove);j.addEventListener('pointerdown',joyMove);j.addEventListener('pointerup',()=>{joy.x=joy.y=0;st.style.transform='translate(0,0)'});
+
+function animate(){
+ requestAnimationFrame(animate); elapsed+=.016;
+ const steer=(keys['a']?-1:0)+(keys['d']?1:0)+joy.x;
+ const forward=(keys['w']?1:0)+(keys['s']?-1:0)+(-joy.y);
+ let target=mode===1?6:mode===2?13:mode===3?24:0;
+ if(forward<-.2)target=-5;
+ player.userData.speed += (target*forward-Math.sign(player.userData.speed)*.35-player.userData.speed)*.07;
+ if(Math.abs(player.userData.speed)<.1)player.userData.speed=0;
+ player.userData.heading -= steer*.025*(Math.min(1,Math.abs(player.userData.speed)/6)+.25);
+ player.rotation.y=player.userData.heading;
+ player.position.x += Math.sin(player.userData.heading)*player.userData.speed*.045;
+ player.position.z += Math.cos(player.userData.heading)*player.userData.speed*.045;
+ player.position.x=Math.max(-680,Math.min(680,player.position.x));player.position.z=Math.max(-680,Math.min(680,player.position.z));
+ const moving=Math.abs(player.userData.speed)>.5;
+ player.userData.legs.forEach((l,i)=>l.rotation.x=moving?Math.sin(elapsed*(3+Math.abs(player.userData.speed)/2)+i*Math.PI)*.38:0);
+ player.children[1].rotation.x=moving?Math.sin(elapsed*4)*.05:0;
+ // NPC movement
+ horseNPCs.forEach((h,i)=>{h.rotation.y+=Math.sin(elapsed*.3+i)*.002;h.position.x+=Math.sin(elapsed*.2+i)*.03});
+ cows.forEach((c,i)=>{c.rotation.y+=Math.sin(elapsed*.2+i)*.001});
+ // camera terceira pessoa
+ const dist=30, height=18;
+ const desired=new THREE.Vector3(player.position.x-Math.sin(player.rotation.y)*dist,height,player.position.z-Math.cos(player.rotation.y)*dist);
+ camera.position.lerp(desired,.09); camera.lookAt(player.position.x,7,player.position.z);
+ sun.position.x=player.position.x+180;sun.position.z=player.position.z+100;
+ document.getElementById('speedText').textContent=Math.round(Math.abs(player.userData.speed)*3.2)+' km/h';
+ document.getElementById('speedBar').style.width=Math.min(100,Math.abs(player.userData.speed)/24*100)+'%';
+ document.getElementById('horseState').textContent=!moving?'parado':Math.abs(player.userData.speed)<8?'andando':Math.abs(player.userData.speed)<17?'trotando':'galopando';
+ // pontos por velocidade
+ if(Math.abs(player.userData.speed)>15){score+=.03;document.getElementById('score').textContent=Math.floor(score)}
+ if(Math.abs(player.position.x-360)<90 && player.position.z>trackZ-trackL/2 && player.position.z<trackZ+trackL/2){document.getElementById('missionText').textContent='🔥 Você está na PISTA GIGANTE! Mantenha velocidade para ganhar pontos.'}
+ else document.getElementById('missionText').textContent='Explore a fazenda, visite o estábulo e encontre a pista gigante.';
+ renderer.render(scene,camera);
+}
+animate();
+addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
+</script>
+</body>
+</html>
